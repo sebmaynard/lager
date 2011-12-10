@@ -1,0 +1,35 @@
+* Overview
+  Lager Colors uses a patch to Erlang (applies to R14B03-R15A) to add customized
+  colors to the lager_console_backend output only, color codes are ANSI-based and
+  are globally configured through the "colors" application environment variables.
+  The colors configured by default are nice for a dark background color terminal.
+
+* Usage
+  To use ANSI color in your application, you need to apply a small Erlang patch.
+
+#+BEGIN_EXAMPLE
+  git clone git://github.com/erlang/otp
+  cd otp
+  git checkout OTP_R14B03
+  patch --verbose -p1 < /path/to/ansi.patch
+  ./otp_build autoconf
+  ./configure ... && make && make install
+#+END_EXAMPLE
+
+
+* Test
+  To see the pretty colors once Erlang is patched and installed.
+
+#+BEGIN_EXAMPLE
+make
+erl -pz ebin -s lager_app
+1> lager:set_loglevel(lager_console_backend, debug).
+2> lager:log(debug, self(), "This is a message").  	% dark gray
+2> lager:log(info, self(), "This is a message"). 	% default gray
+4> lager:log(notice, self(), "This is a message").	% light cyan
+5> lager:log(warning, self(), "This is a message").	% light yellow
+6> lager:log(error, self(), "This is a message").  	% dark red
+7> lager:log(critical, self(), "This is a message").	% light red
+8> lager:log(alert, self(), "This is a message").  	% blink white on magenta 
+9> lager:log(emergency, self(), "This is a message").	% blink white on red
+#+END_EXAMPLE

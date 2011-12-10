@@ -24,7 +24,7 @@
 -export([init/1, handle_call/2, handle_event/2, handle_info/2, terminate/2,
         code_change/3]).
 
--record(state, {level, verbose}).
+-record(state, {level, verbose, colors}).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -37,14 +37,16 @@
 init(Level) when is_atom(Level) ->
     case lists:member(Level, ?LEVELS) of
         true ->
-            {ok, #state{level=lager_util:level_to_num(Level), verbose=false}};
+            {ok, #state{level=lager_util:level_to_num(Level), verbose=false,
+                        colors = color_scheme()}};
         _ ->
             {error, bad_log_level}
     end;
 init([Level, Verbose]) ->
     case lists:member(Level, ?LEVELS) of
         true ->
-            {ok, #state{level=lager_util:level_to_num(Level), verbose=Verbose}};
+            {ok, #state{level=lager_util:level_to_num(Level), 
+                        verbose=Verbose, colors = color_scheme()}};
         _ ->
             {error, bad_log_level}
     end.
@@ -65,26 +67,28 @@ handle_call(_Request, State) ->
 
 %% @private
 handle_event({log, Dest, Level, {Date, Time}, [LevelStr, Location, Message]},
-    #state{level=L, verbose=Verbose} = State) when Level > L ->
+    #state{level=L, verbose=Verbose, colors = Colors} = State) when Level > L ->
+	Color = color_level(Level, Colors),
     case lists:member(lager_console_backend, Dest) of
         true ->
             case Verbose of
                 true ->
-                    io:put_chars([Date, " ", Time, " ", LevelStr, Location, Message, "\n"]);
+                    io:put_chars([Date, " ", Time, " ", Color, LevelStr, Location, Message, "\e[0m\n"]);
                 _ ->
-                    io:put_chars([Time, " ", LevelStr, Message, "\n"])
+                    io:put_chars([Time, " ", Color, LevelStr, Message, "\e[0m\n"])
             end,
             {ok, State};
         false ->
             {ok, State}
     end;
 handle_event({log, Level, {Date, Time}, [LevelStr, Location, Message]},
-  #state{level=LogLevel, verbose=Verbose} = State) when Level =< LogLevel ->
+  #state{level=LogLevel, verbose=Verbose, colors=Colors} = State) when Level =< LogLevel ->
+	Color = color_level(Level, Colors),
     case Verbose of
         true ->
-            io:put_chars([Date, " ", Time, " ", LevelStr, Location, Message, "\n"]);
+            io:put_chars([Date, " ", Time, " ", Color, LevelStr, Location, Message, "\e[0m\n"]);
         _ ->
-            io:put_chars([Time, " ", LevelStr, Message, "\n"])
+            io:put_chars([Time, " ", Color, LevelStr, Message, "\e[0m\n"])
     end,
     {ok, State};
 handle_event(_Event, State) ->
@@ -101,6 +105,20 @@ terminate(_Reason, _State) ->
 %% @private
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+color_level(Num, Colors) ->
+	Level = lager_util:num_to_level(Num),
+
+	case lists:keyfind(Level, 1, Colors) of
+    	{_, Color} 	 -> Color;
+		_ 			 -> []
+	end.
+
+color_scheme() -> 
+	case application:get_env(lager, colors) of
+		{ok, Scheme} -> Scheme;
+		_            -> []
+    end.
 
 -ifdef(TEST).
 console_log_test_() ->

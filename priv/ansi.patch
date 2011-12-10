@@ -1,0 +1,28 @@
+--- a/erts/emulator/drivers/unix/ttsl_drv.c	2011-05-24 07:16:43.000000000 -0400
++++ b/erts/emulator/drivers/unix/ttsl_drv.c	2011-12-10 14:24:23.000000000 -0500
+@@ -912,6 +912,15 @@ static int insert_buf(byte *s, int n)
+ 		lbuf[lpos++] = (CONTROL_TAG | ((Uint32) ch));
+ 		ch = 0;
+ 	    } while (lpos % 8);
++	} else if (ch == '\e') {
++	    write_buf(lbuf + buffpos, lpos - buffpos);
++	    outc('\e');
++
++	    if (llen > lpos) {
++		memcpy(lbuf, lbuf + lpos, llen - lpos);
++	    }
++	    llen -= lpos;
++	    lpos = buffpos = 0;	    
+ 	} else if (ch == '\n' || ch == '\r') {
+ 	    write_buf(lbuf + buffpos, lpos - buffpos);
+ 	    outc('\r');
+--- a/lib/stdlib/src/shell.erl	2011-11-22 08:57:01.000000000 -0500
++++ b/lib/stdlib/src/shell.erl	2011-12-10 14:25:58.000000000 -0500
+@@ -674,6 +674,7 @@ exprs([E0|Es], Bs1, RT, Lf, Ef, Bs0, W) 
+                     [io:requests([{put_chars, VS}, nl]) || W =:= cmd],
+                     %% Don't send the result back if it will be
+                     %% discarded anyway.
++                    io:fwrite("\e[0m"),
+                     V = if
+                             W =:= pmt ->
+                                 {W,V0};
