@@ -133,7 +133,7 @@ console_log_test_() ->
                         unregister(user),
                         register(user, Pid),
                         erlang:group_leader(Pid, whereis(lager_event)),
-                        lager_config:set(loglevel, {?INFO, []}),
+                        lager_config:set(loglevel, {?INFO, ?DEFAULT_TRACER, []}),
                         lager:log(info, self(), "Test message"),
                         receive
                             {io_request, From, ReplyAs, {put_chars, unicode, Msg}} ->
@@ -152,7 +152,7 @@ console_log_test_() ->
                         register(user, Pid),
                         erlang:group_leader(Pid, whereis(lager_event)),
                         gen_event:add_handler(lager_event, lager_console_backend, [info, true]),
-                        lager_config:set(loglevel, {?INFO, []}),
+                        lager_config:set(loglevel, {?INFO, ?DEFAULT_TRACER, []}),
                         lager:info("Test message"),
                         lager:info("Test message"),
                         PidStr = pid_to_list(self()),
@@ -172,7 +172,7 @@ console_log_test_() ->
                         register(user, Pid),
                         gen_event:add_handler(lager_event, lager_console_backend, info),
                         erlang:group_leader(Pid, whereis(lager_event)),
-                        lager_config:set(loglevel, {?INFO, []}),
+                        lager_config:set(loglevel, {?INFO, ?DEFAULT_TRACER, []}),
                         lager:debug("Test message"),
                         receive
                             {io_request, From, ReplyAs, {put_chars, unicode, _Msg}} ->
@@ -200,7 +200,7 @@ console_log_test_() ->
                         unregister(user),
                         register(user, Pid),
                         gen_event:add_handler(lager_event, lager_console_backend, info),
-                        lager_config:set(loglevel, {?INFO, []}),
+                        lager_config:set(loglevel, {?INFO, ?DEFAULT_TRACER, []}),
                         erlang:group_leader(Pid, whereis(lager_event)),
                         lager:debug("Test message"),
                         receive

@@ -22,7 +22,7 @@
 
 %% API
 -export([start/0,
-        log/3, log/4,
+        log/3, log/4, filter/1, filter/2,
         trace_file/2, trace_file/3, trace_console/1, trace_console/2,
         clear_all_traces/0, stop_trace/1, status/0,
         get_loglevel/1, set_loglevel/2, set_loglevel/3, get_loglevels/0,
@@ -59,7 +59,7 @@ dispatch_log(Severity, Metadata, Format, Args, Size) when is_atom(Severity)->
             %% lager isn't running
             {error, lager_not_running};
         Pid ->
-            {LevelThreshold,TraceFilters} = lager_config:get(loglevel,{?LOG_NONE,[]}),
+            {LevelThreshold,_TraceMod,TraceFilters} = lager_config:get(loglevel,{?LOG_NONE,?DEFAULT_TRACER,[]}),
             SeverityAsInt=lager_util:level_to_num(Severity),
             Destinations = case TraceFilters of 
                 [] -> [];
@@ -75,6 +75,7 @@ dispatch_log(Severity, Metadata, Format, Args, Size) when is_atom(Severity)->
                     end,
                     gen_event:sync_notify(Pid, {log, lager_msg:new(Msg, Timestamp,
                                 Severity, Metadata, Destinations)});
+
                 _ -> 
                     ok
             end
@@ -94,12 +95,15 @@ log(Level, Pid, Format, Args) when is_pid(Pid); is_atom(Pid) ->
 log(Level, Metadata, Format, Args) when is_list(Metadata) ->
     dispatch_log(Level, Metadata, Format, Args, ?DEFAULT_TRUNCATION).
 
+trace_file(File, Filter) when is_list(Filter) ->
+    trace_file(File, lager_util:trace_all(Filter));
 trace_file(File, Filter) ->
     trace_file(File, Filter, debug).
 
 trace_file(File, Filter, Level) ->
     Trace0 = {Filter, Level, {lager_file_backend, File}},
-    case lager_util:validate_trace(Trace0) of
+    Validate = lager_util:validate_trace(Trace0),
+    case Validate of
         {ok, Trace} ->
             Handlers = gen_event:which_handlers(lager_event),
             %% check if this file backend is already installed
@@ -114,10 +118,11 @@ trace_file(File, Filter, Level) ->
             case Res of
               {ok, _} ->
                 %% install the trace.
-                {MinLevel, Traces} = lager_config:get(loglevel),
+                {MinLevel, TraceMod, Traces} = lager_config:get(loglevel),
                 case lists:member(Trace, Traces) of
                   false ->
-                    lager_config:set(loglevel, {MinLevel, [Trace|Traces]});
+                    filter(TraceMod, element(1, Trace)),
+                    lager_config:set(loglevel, {MinLevel, TraceMod, [Trace|Traces]});
                   _ ->
                     ok
                 end,
@@ -129,6 +134,29 @@ trace_file(File, Filter, Level) ->
             Error
     end.
 
+
+filter(none) ->
+    filter(?DEFAULT_TRACER, glc:null(true));
+filter(Query) when is_list(Query) ->
+    filter(?DEFAULT_TRACER, lager_util:trace_all(Query));
+filter(Query) ->
+    filter(?DEFAULT_TRACER, Query).
+
+filter(Module, none) ->
+    filter(Module, glc:null(true));
+filter(Module, Query) when is_list(Query) ->
+    filter(Module, lager_util:trace_all(Query));
+filter(Module, Query) ->
+    {ok, _} = glc:compile(Module,
+        glc:with(Query, 
+            fun(Event) ->
+                gen_event:sync_notify(gre:fetch(notify_pid, Event), 
+			{log, gre:fetch(log, Event)})
+            end)).
+
+
+trace_console(Filter) when is_list(Filter) ->
+    trace_console(lager_util:trace_all(Filter));
 trace_console(Filter) ->
     trace_console(Filter, debug).
 
@@ -136,10 +164,11 @@ trace_console(Filter, Level) ->
     Trace0 = {Filter, Level, lager_console_backend},
     case lager_util:validate_trace(Trace0) of
         {ok, Trace} ->
-            {MinLevel, Traces} = lager_config:get(loglevel),
+            {MinLevel, TraceMod, Traces} = lager_config:get(loglevel),
             case lists:member(Trace, Traces) of
                 false ->
-                    lager_config:set(loglevel, {MinLevel, [Trace|Traces]});
+                    filter(TraceMod, element(1, Trace)),
+                    lager_config:set(loglevel, {MinLevel, TraceMod, [Trace|Traces]});
                 _ -> ok
             end,
             {ok, Trace};
@@ -148,9 +177,10 @@ trace_console(Filter, Level) ->
     end.
 
 stop_trace({_Filter, _Level, Target} = Trace) ->
-    {MinLevel, Traces} = lager_config:get(loglevel),
+    {MinLevel, TraceMod, Traces} = lager_config:get(loglevel),
     NewTraces =  lists:delete(Trace, Traces),
-    lager_config:set(loglevel, {MinLevel, NewTraces}),
+    filter(TraceMod, none),
+    lager_config:set(loglevel, {MinLevel, TraceMod, NewTraces}),
     case get_loglevel(Target) of
         none ->
             %% check no other traces point here
@@ -166,8 +196,9 @@ stop_trace({_Filter, _Level, Target} = Trace) ->
     ok.
 
 clear_all_traces() ->
-    {MinLevel, _Traces} = lager_config:get(loglevel),
-    lager_config:set(loglevel, {MinLevel, []}),
+    {MinLevel, TraceMod, _Traces} = lager_config:get(loglevel),
+    filter(TraceMod, none),
+    lager_config:set(loglevel, {MinLevel, TraceMod, []}),
     lists:foreach(fun(Handler) ->
           case get_loglevel(Handler) of
             none ->
@@ -203,19 +234,18 @@ set_loglevel(Handler, Level) when is_atom(Level) ->
     Reply = gen_event:call(lager_event, Handler, {set_loglevel, Level}, infinity),
     %% recalculate min log level
     MinLog = minimum_loglevel(get_loglevels()),
-    {_, Traces} = lager_config:get(loglevel),
-    lager_config:set(loglevel, {MinLog, Traces}),
+    {_, TraceMod, Traces} = lager_config:get(loglevel),
+    lager_config:set(loglevel, {MinLog, TraceMod, Traces}),
     Reply.
 
 %% @doc Set the loglevel for a particular backend that has multiple identifiers
 %% (eg. the file backend).
 set_loglevel(Handler, Ident, Level) when is_atom(Level) ->
-    io:format("handler: ~p~n", [{Handler, Ident}]),
     Reply = gen_event:call(lager_event, {Handler, Ident}, {set_loglevel, Level}, infinity),
     %% recalculate min log level
     MinLog = minimum_loglevel(get_loglevels()),
-    {_, Traces} = lager_config:get(loglevel),
-    lager_config:set(loglevel, {MinLog, Traces}),
+    {_, TraceMod, Traces} = lager_config:get(loglevel),
+    lager_config:set(loglevel, {MinLog, TraceMod, Traces}),
     Reply.
 
 %% @doc Get the loglevel for a particular backend. In the case that the backend

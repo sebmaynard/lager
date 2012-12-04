@@ -34,6 +34,7 @@ start() ->
 
 start(_StartType, _StartArgs) ->
     {ok, Pid} = lager_sup:start_link(),
+    lager_config:set(loglevel, {?DEBUG, ?DEFAULT_TRACER, []}),
     Handlers = case application:get_env(lager, handlers) of
         undefined ->
             [{lager_console_backend, info},
@@ -49,8 +50,8 @@ start(_StartType, _StartArgs) ->
 
     %% mask the messages we have no use for
     MinLog = lager:minimum_loglevel(lager:get_loglevels()),
-    {_, Traces} = lager_config:get(loglevel),
-    lager_config:set(loglevel, {MinLog, Traces}),
+    {_, TraceMod, Traces} = lager_config:get(loglevel),
+    lager_config:set(loglevel, {MinLog, TraceMod, Traces}),
 
     SavedHandlers = case application:get_env(lager, error_logger_redirect) of
         {ok, false} ->
