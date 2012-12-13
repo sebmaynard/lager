@@ -24,7 +24,7 @@
 -export([init/1, handle_call/2, handle_event/2, handle_info/2, terminate/2,
         code_change/3]).
 
--record(state, {level, formatter,format_config}).
+-record(state, {level, formatter,format_config,colors=[]}).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -32,22 +32,30 @@
 -endif.
 
 -include("lager.hrl").
-
--define(TERSE_FORMAT,[time, " [", severity,"] ", message, "\r\n"]).
+-define(EOL, "\e[0m\r\n").
+-define(TERSE_FORMAT,[time, " ", color, "[", severity,"] ", message, ?EOL]).
 
 %% @private
 init(Level) when is_atom(Level) ->
     init([Level,{lager_default_formatter,?TERSE_FORMAT}]);
 init([Level, true]) -> % for backwards compatibility
-    init([Level,{lager_default_formatter,[{eol, "\r\n"}]}]);
+    init([Level,{lager_default_formatter,[{eol, ?EOL}]}]);
 init([Level,false]) -> % for backwards compatibility
     init([Level,{lager_default_formatter,?TERSE_FORMAT}]);
 init([Level,{Formatter,FormatterConfig}])  when is_atom(Level), is_atom(Formatter)->
+    {ok, Colored} = application:get_env(lager, colored),
+    LevelNum = lager_util:level_to_num(Level),
     case lists:member(Level, ?LEVELS) of
-        true ->
-            {ok, #state{level=lager_util:level_to_num(Level), 
+        true when not Colored ->
+            {ok, #state{level=LevelNum, 
                     formatter=Formatter, 
                     format_config=FormatterConfig}};
+        true when Colored ->
+            {ok, Colors} = application:get_env(lager, colors),
+            {ok, #state{level=LevelNum, 
+                    formatter=Formatter, 
+                    format_config=FormatterConfig,
+                    colors=Colors}};
         _ ->
             {error, bad_log_level}
     end.
@@ -68,10 +76,10 @@ handle_call(_Request, State) ->
 
 %% @private
 handle_event({log, Message},
-    #state{level=L,formatter=Formatter,format_config=FormatConfig} = State) ->
+    #state{level=L,formatter=Formatter,format_config=FormatConfig,colors=Colors} = State) ->
     case lager_util:is_loggable(Message, L, ?MODULE) of
         true ->
-            io:put_chars(user, Formatter:format(Message,FormatConfig)),
+            io:put_chars(user, Formatter:format(Message,FormatConfig,Colors)),
             {ok, State};
         false ->
             {ok, State}
@@ -138,7 +146,7 @@ console_log_test_() ->
                         receive
                             {io_request, From, ReplyAs, {put_chars, unicode, Msg}} ->
                                 From ! {io_reply, ReplyAs, ok},
-                                ?assertMatch([_, "[info]", "Test message\r\n"], re:split(Msg, " ", [{return, list}, {parts, 3}]))
+                                ?assertMatch([_, "[info]", "Test message" ++ ?EOL], re:split(Msg, " ", [{return, list}, {parts, 3}]))
                         after
                             500 ->
                                 ?assert(false)
@@ -158,7 +166,7 @@ console_log_test_() ->
                         PidStr = pid_to_list(self()),
                         receive
                             {io_request, _, _, {put_chars, unicode, Msg}} ->
-                                ?assertMatch([_, _, "[info]", PidStr, _,"Test message\r\n"], re:split(Msg, "[ @]", [{return, list}, {parts, 6}]))
+                                ?assertMatch([_, _, "[info]", PidStr, _,"Test message" ++ ?EOL], re:split(Msg, "[ @]", [{return, list}, {parts, 6}]))
                         after
                             500 ->
                                 ?assert(false)
@@ -211,7 +219,7 @@ console_log_test_() ->
                         receive
                             {io_request, From1, ReplyAs1, {put_chars, unicode, Msg1}} ->
                                 From1 ! {io_reply, ReplyAs1, ok},
-                                ?assertMatch([_, "[debug]", "Test message\r\n"], re:split(Msg1, " ", [{return, list}, {parts, 3}]))
+                                ?assertMatch([_, "[debug]", "Test message" ++ ?EOL], re:split(Msg1, " ", [{return, list}, {parts, 3}]))
                         after
                             500 ->
                                 ?assert(false)
@@ -240,7 +248,7 @@ console_log_test_() ->
                         receive
                             {io_request, From1, ReplyAs1, {put_chars, unicode, Msg1}} ->
                                 From1 ! {io_reply, ReplyAs1, ok},
-                                ?assertMatch([_, "[error]", "Test message\r\n"], re:split(Msg1, " ", [{return, list}, {parts, 3}]))
+                                ?assertMatch([_, "[error]", "Test message" ++ ?EOL], re:split(Msg1, " ", [{return, list}, {parts, 3}]))
                         after
                             1000 ->
                                 ?assert(false)
