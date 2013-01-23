@@ -21,7 +21,7 @@
                 ]}
             ]},
             %% What colors to use with what log levels
-            {colored, false},
+            {colored, true},
             {colors, [
               {debug,     "\e[0;38m" },
               {info,      "\e[1;37m" },
